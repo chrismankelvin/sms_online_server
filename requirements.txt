@@ -1,0 +1,11 @@
+fastapi==0.104.1
+dotenv
+pydantic[email]
+uvicorn[standard]==0.24.0
+sqlitecloud
+cryptography==41.0.7
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+requests==2.31.0
+gunicorn==21.2.0  # For production

@@ -1,0 +1,47 @@
+
+## 11. **Git Ignore**
+
+**.gitignore:**
+
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+venv/
+.env
+.venv
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+*.db-journal
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Production
+config.yaml
+secrets.yaml

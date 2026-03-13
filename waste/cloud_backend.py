@@ -2643,98 +2643,527 @@ async def verify_school_recovery(req: SchoolRecoveryRequest, request: Request):
 #         log_recovery_attempt(req.email, "perform_recovery", "error", f"Unhandled: {str(e)}", client_ip)
 #         raise HTTPException(status_code=500, detail=f"Recovery failed: {str(e)}")
 
+# @app.post("/recovery/import-blob")
+# async def import_recovery_blob(req: RecoveryImportRequest, request: Request):
+#     """Import an encrypted recovery blob directly to main app"""
+#     client_ip = request.client.host
+    
+#     try:
+#         # Test main app connection
+#         try:
+#             response = requests.get("http://localhost:8000/health/test", timeout=5)
+#             if response.status_code != 200:
+#                 raise HTTPException(status_code=503, detail="Main app is not responding")
+#         except requests.exceptions.ConnectionError:
+#             raise HTTPException(status_code=503, detail="Cannot connect to main app")
+        
+#         # Send to main app's import endpoint
+#         main_app_url = "http://localhost:8000/recovery/import"
+        
+#         response = requests.post(
+#             main_app_url,
+#             json={
+#                 "school_email": req.school_email,
+#                 "encrypted_backup": req.encrypted_backup
+#             },
+#             timeout=30
+#         )
+        
+#         if response.status_code == 200:
+#             result = response.json()
+            
+#             log_recovery_attempt(
+#                 req.school_email, "import_blob", "success", 
+#                 f"Imported to main app: {result.get('admins_imported', 0)} admins",
+#                 client_ip
+#             )
+            
+#             return {
+#                 "success": True,
+#                 "message": "Recovery blob successfully imported to main app",
+#                 "main_app_response": result
+#             }
+#         else:
+#             error_msg = f"Main app returned {response.status_code}: {response.text}"
+#             log_recovery_attempt(req.school_email, "import_blob", "failed", error_msg, client_ip)
+            
+#             return {
+#                 "success": False,
+#                 "message": "Failed to import to main app",
+#                 "status_code": response.status_code,
+#                 "error": response.text
+#             }
+            
+#     except HTTPException:
+#         raise
+#     except requests.exceptions.Timeout:
+#         raise HTTPException(status_code=504, detail="Request to main app timed out")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
 @app.post("/recovery/import-blob")
 async def import_recovery_blob(req: RecoveryImportRequest, request: Request):
     """Import an encrypted recovery blob directly to main app"""
     client_ip = request.client.host
+    logger.info(f"🔍 ===== IMPORT BLOB STARTED =====")
+    logger.info(f"🔍 Request from IP: {client_ip}")
+    logger.info(f"🔍 School email: {req.school_email}")
+    logger.info(f"🔍 Encrypted blob length: {len(req.encrypted_backup) if req.encrypted_backup else 0}")
+    logger.info(f"🔍 Blob preview: {req.encrypted_backup[:100] if req.encrypted_backup else 'None'}...")
     
     try:
-        # Test main app connection
+        # Step 1: Test main app connection
+        logger.info(f"🔍 Step 1: Testing main app connection to http://localhost:8000/health/test...")
         try:
             response = requests.get("http://localhost:8000/health/test", timeout=5)
-            if response.status_code != 200:
-                raise HTTPException(status_code=503, detail="Main app is not responding")
-        except requests.exceptions.ConnectionError:
-            raise HTTPException(status_code=503, detail="Cannot connect to main app")
-        
-        # Send to main app's import endpoint
-        main_app_url = "http://localhost:8000/recovery/import"
-        
-        response = requests.post(
-            main_app_url,
-            json={
-                "school_email": req.school_email,
-                "encrypted_backup": req.encrypted_backup
-            },
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
+            logger.info(f"🔍 Main app health check response status: {response.status_code}")
+            logger.info(f"🔍 Main app health check response body: {response.text[:200]}")
             
-            log_recovery_attempt(
-                req.school_email, "import_blob", "success", 
-                f"Imported to main app: {result.get('admins_imported', 0)} admins",
-                client_ip
+            if response.status_code != 200:
+                logger.error(f"❌ Main app returned status {response.status_code}, expected 200")
+                raise HTTPException(
+                    status_code=503, 
+                    detail=f"Main app is not responding (status: {response.status_code})"
+                )
+            else:
+                logger.info(f"✅ Main app is responding normally")
+                
+        except requests.exceptions.ConnectionError as ce:
+            logger.error(f"❌ Connection error to main app: {ce}")
+            logger.error(f"❌ Make sure main app is running on http://localhost:8000")
+            raise HTTPException(
+                status_code=503, 
+                detail="Cannot connect to main app. Please ensure it's running on port 8000."
+            )
+        except requests.exceptions.Timeout as te:
+            logger.error(f"❌ Timeout connecting to main app: {te}")
+            raise HTTPException(status_code=504, detail="Connection to main app timed out")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error checking main app: {e}")
+            raise HTTPException(status_code=503, detail=f"Failed to check main app: {str(e)}")
+        
+        # Step 2: Send to main app's import endpoint
+        main_app_url = "http://localhost:8000/recovery/import"
+        logger.info(f"🔍 Step 2: Sending blob to main app at {main_app_url}")
+        logger.info(f"🔍 Request payload: school_email={req.school_email}, blob_length={len(req.encrypted_backup)}")
+        
+        try:
+            response = requests.post(
+                main_app_url,
+                json={
+                    "school_email": req.school_email,
+                    "encrypted_backup": req.encrypted_backup
+                },
+                timeout=30,
+                headers={"Content-Type": "application/json"}
             )
             
-            return {
-                "success": True,
-                "message": "Recovery blob successfully imported to main app",
-                "main_app_response": result
-            }
+            logger.info(f"🔍 Main app import response status: {response.status_code}")
+            logger.info(f"🔍 Main app import response headers: {dict(response.headers)}")
+            logger.info(f"🔍 Main app import response body: {response.text[:500]}")  # Log first 500 chars
+            
+        except requests.exceptions.ConnectionError as ce:
+            logger.error(f"❌ Connection error to main app import endpoint: {ce}")
+            raise HTTPException(
+                status_code=503, 
+                detail="Cannot connect to main app import endpoint"
+            )
+        except requests.exceptions.Timeout as te:
+            logger.error(f"❌ Timeout sending to main app: {te}")
+            raise HTTPException(status_code=504, detail="Request to main app timed out")
+        except Exception as e:
+            logger.error(f"❌ Error sending to main app: {e}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Error sending to main app: {str(e)}")
+        
+        # Step 3: Process response
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                logger.info(f"✅ Successfully parsed main app response JSON")
+                logger.info(f"✅ Main app response: {result}")
+                
+                log_recovery_attempt(
+                    req.school_email, "import_blob", "success", 
+                    f"Imported to main app: {result.get('admins_imported', 0)} admins",
+                    client_ip
+                )
+                
+                return {
+                    "success": True,
+                    "message": "Recovery blob successfully imported to main app",
+                    "main_app_response": result
+                }
+                
+            except ValueError as json_error:
+                logger.error(f"❌ Failed to parse main app response as JSON: {json_error}")
+                logger.error(f"❌ Raw response: {response.text[:500]}")
+                return {
+                    "success": False,
+                    "message": "Invalid JSON response from main app",
+                    "status_code": response.status_code,
+                    "error": str(json_error),
+                    "raw_response": response.text[:500]
+                }
         else:
-            error_msg = f"Main app returned {response.status_code}: {response.text}"
-            log_recovery_attempt(req.school_email, "import_blob", "failed", error_msg, client_ip)
+            error_msg = f"Main app returned {response.status_code}: {response.text[:500]}"
+            logger.error(f"❌ {error_msg}")
+            
+            log_recovery_attempt(
+                req.school_email, "import_blob", "failed", 
+                error_msg, 
+                client_ip
+            )
             
             return {
                 "success": False,
                 "message": "Failed to import to main app",
                 "status_code": response.status_code,
-                "error": response.text
+                "error": response.text[:500]
             }
             
-    except HTTPException:
+    except HTTPException as he:
+        logger.error(f"❌ HTTPException: {he.detail}")
         raise
     except requests.exceptions.Timeout:
+        logger.error("❌ Request to main app timed out")
         raise HTTPException(status_code=504, detail="Request to main app timed out")
     except Exception as e:
+        logger.error(f"❌ Unhandled exception in import_blob: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+    finally:
+        logger.info(f"🔍 ===== IMPORT BLOB COMPLETED =====\n")
+
+
+
+# @app.post("/perform-recovery")
+# async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
+#     """Perform the complete school recovery process"""
+#     client_ip = request.client.host
+#     logger.info(f"🔍 /perform-recovery called for email: {req.email} from IP: {client_ip}")
+    
+#     try:
+#         # Input validation
+#         if not req.confirm_deactivation:
+#             raise HTTPException(
+#                 status_code=400, 
+#                 detail="You must confirm device deactivation to proceed with recovery."
+#             )
+        
+#         if not cloud_client.check_connection():
+#             raise HTTPException(status_code=503, detail="Cannot connect to cloud database")
+        
+#         # Step 1: Verify school details
+#         verify_result = await verify_school_recovery(req, request)
+        
+#         if not verify_result.get("verified"):
+#             return {
+#                 "success": False,
+#                 "message": verify_result.get("message", "Verification failed")
+#             }
+        
+#         school_data = verify_result["data"]["school"]
+#         school_id = school_data.get("id")
+        
+#         if not school_id:
+#             raise HTTPException(status_code=500, detail="School ID not found in verification data")
+        
+#         # Step 2: Get full admin data (including password hashes)
+#         admin_query = """
+#             SELECT id, first_name, middle_name, last_name, 
+#                    contact, email, password_hash, created_at
+#             FROM admin_table 
+#             WHERE school_id = ? 
+#             ORDER BY created_at DESC
+#         """
+        
+#         admin_result = execute_cloud_query(admin_query, (school_id,))
+        
+#         if not admin_result.get("success"):
+#             raise HTTPException(status_code=503, detail="Failed to query admin data")
+        
+#         admins = admin_result.get("rows", [])
+        
+#         if not admins:
+#             raise HTTPException(status_code=404, detail="No admin accounts found for this school.")
+        
+#         logger.info(f"Found {len(admins)} admins to recover")
+        
+#         # Step 3: Get full school data for blob creation
+#         full_school_query = """
+#             SELECT * FROM school_installations WHERE id = ?
+#         """
+#         full_school_result = execute_cloud_query(full_school_query, (school_id,))
+        
+#         if full_school_result.get("success") and full_school_result.get("rows"):
+#             full_school_data = full_school_result["rows"][0]
+#         else:
+#             full_school_data = school_data
+        
+#         # Step 4: Create encrypted recovery blob
+#         try:
+#             encrypted_blob = create_recovery_blob(full_school_data, admins)
+#             logger.info(f"✅ Created blob of length {len(encrypted_blob)}")
+#         except Exception as blob_error:
+#             logger.error(f"Failed to create blob: {blob_error}")
+#             encrypted_blob = None
+        
+#         # Step 5: Save to local database with SIMPLE approach
+#         conn = None
+#         try:
+#             conn = get_local_db_connection()
+#             cursor = conn.cursor()
+            
+#             # Start transaction
+#             cursor.execute("BEGIN TRANSACTION")
+            
+#             # SIMPLE FIX: First, delete ONLY the conflicting records
+#             admin_emails = []
+#             for admin in admins:
+#                 email = admin.get("email", "").strip()
+#                 if email:
+#                     admin_emails.append(email)
+#                     # Delete any existing record with this email
+#                     cursor.execute("DELETE FROM recovered_users WHERE email = ?", (email,))
+#                     logger.info(f"Deleted existing record for email: {email}")
+            
+#             logger.info(f"Cleared {len(admin_emails)} potential conflicts")
+            
+#             # Save school info (use INSERT OR REPLACE)
+#             school_name = school_data.get("school_name", "").strip()
+#             school_email = school_data.get("school_email", "").strip()
+#             school_contact = school_data.get("school_contact", "").strip()
+            
+#             # Prepare address
+#             town = full_school_data.get("town", "") if isinstance(full_school_data, dict) else ""
+#             city = full_school_data.get("city", "") if isinstance(full_school_data, dict) else school_data.get("city", "")
+#             region = full_school_data.get("region", "") if isinstance(full_school_data, dict) else school_data.get("region", "")
+#             county = full_school_data.get("county", "") if isinstance(full_school_data, dict) else school_data.get("county", "")
+            
+#             address = f"{town}, {city}".strip(", ")
+#             if not address or address == ", ":
+#                 address = city if city else "Unknown"
+            
+#             # Use INSERT OR REPLACE for school
+#             cursor.execute("""
+#                 INSERT OR REPLACE INTO recovered_school_info 
+#                 (id, school_name, email, phone, address, city, state, country, 
+#                  created_at, updated_at, recovered_at, cloud_school_id, original_cloud_data)
+#                 VALUES (
+#                     COALESCE((SELECT id FROM recovered_school_info WHERE email = ?), NULL),
+#                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+#                 )
+#             """, (
+#                 school_email,  # for subquery
+#                 school_name,
+#                 school_email,
+#                 school_contact,
+#                 address,
+#                 city,
+#                 region,
+#                 county,
+#                 datetime.now().isoformat(),
+#                 datetime.now().isoformat(),
+#                 datetime.now().isoformat(),
+#                 school_id,
+#                 json.dumps(full_school_data if isinstance(full_school_data, dict) else {}, default=str)
+#             ))
+            
+#             logger.info(f"Saved school info")
+            
+#             # Save admins - NOW with clean slate
+#             saved_admin_ids = []
+#             failed_admins = []
+            
+#             for i, admin in enumerate(admins):
+#                 try:
+#                     unique_id = str(uuid.uuid4())
+#                     email = admin.get("email", "").strip()
+#                     contact = admin.get("contact", "").strip()
+                    
+#                     logger.info(f"Processing admin {i+1}: email='{email}'")
+                    
+#                     password_hash = admin.get("password_hash")
+#                     if not password_hash:
+#                         password_hash = hash_password("temporary_password")
+                    
+#                     # Prepare original data
+#                     original_data = {k: v for k, v in admin.items() if k != 'password_hash'}
+                    
+#                     if email:
+#                         # Simple insert - we already deleted conflicts
+#                         cursor.execute("""
+#                             INSERT INTO recovered_users 
+#                             (unique_id, username, email, password_hash, role, status, 
+#                              created_at, recovered_at, cloud_user_id, original_cloud_data)
+#                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+#                         """, (
+#                             unique_id,
+#                             email,
+#                             email,
+#                             password_hash,
+#                             "admin",
+#                             "active",
+#                             datetime.now().isoformat(),
+#                             datetime.now().isoformat(),
+#                             admin.get("id"),
+#                             json.dumps(original_data, default=str)
+#                         ))
+#                     else:
+#                         # Admin without email
+#                         username = f"admin_{contact}_{unique_id[:8]}" if contact else f"admin_{unique_id[:8]}"
+#                         cursor.execute("""
+#                             INSERT INTO recovered_users 
+#                             (unique_id, username, email, password_hash, role, status, 
+#                              created_at, recovered_at, cloud_user_id, original_cloud_data)
+#                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+#                         """, (
+#                             unique_id,
+#                             username,
+#                             None,
+#                             password_hash,
+#                             "admin",
+#                             "active",
+#                             datetime.now().isoformat(),
+#                             datetime.now().isoformat(),
+#                             admin.get("id"),
+#                             json.dumps(original_data, default=str)
+#                         ))
+                    
+#                     saved_admin_ids.append(cursor.lastrowid)
+#                     logger.info(f"✅ Admin {i+1} saved successfully")
+                    
+#                 except Exception as admin_error:
+#                     logger.error(f"❌ Error for admin {i+1}: {admin_error}")
+#                     failed_admins.append({
+#                         "admin": {
+#                             "id": admin.get("id"),
+#                             "email": admin.get("email", ""),
+#                             "contact": admin.get("contact", "")
+#                         }, 
+#                         "error": str(admin_error)
+#                     })
+            
+#             # Update activation state
+#             cursor.execute("""
+#                 INSERT OR REPLACE INTO recovery_activation_state 
+#                 (id, activated, school_name, updated_at, recovered_at)
+#                 VALUES (1, FALSE, ?, ?, ?)
+#             """, (
+#                 school_name,
+#                 datetime.now().isoformat(),
+#                 datetime.now().isoformat()
+#             ))
+            
+#             # Commit transaction
+#             conn.commit()
+#             logger.info(f"✅ Transaction committed. Saved {len(saved_admin_ids)} admins, Failed: {len(failed_admins)}")
+            
+#         except Exception as db_error:
+#             if conn:
+#                 conn.rollback()
+#                 logger.error(f"Database error, rolled back: {db_error}")
+#             raise HTTPException(status_code=500, detail=f"Database error during recovery: {str(db_error)}")
+#         finally:
+#             if conn:
+#                 conn.close()
+        
+#         # Log success/failure
+#         log_recovery_attempt(
+#             req.email, "perform_recovery", 
+#             "success" if saved_admin_ids else "failed", 
+#             f"Recovered {len(saved_admin_ids)} admins, Failed: {len(failed_admins)}", 
+#             client_ip
+#         )
+        
+#         # Prepare response
+#         response_data = {
+#             "success": True if saved_admin_ids else False,
+#             "message": f"Recovery completed. Recovered {len(saved_admin_ids)} out of {len(admins)} admins.",
+#             "data": {
+#                 "school_name": school_name,
+#                 "school_email": school_email,
+#                 "admins_recovered": len(saved_admin_ids),
+#                 "admins_failed": len(failed_admins),
+#                 "total_admins": len(admins),
+#                 "recovery_timestamp": datetime.now().isoformat(),
+#                 "encrypted_blob_available": encrypted_blob is not None
+#             }
+#         }
+        
+#         if failed_admins:
+#             response_data["warning"] = f"Failed to recover {len(failed_admins)} admin(s)."
+        
+#         if encrypted_blob:
+#             response_data["encrypted_blob"] = encrypted_blob
+        
+#         return response_data
+                
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Unhandled exception: {e}")
+#         log_recovery_attempt(req.email, "perform_recovery", "error", str(e), client_ip)
+#         raise HTTPException(status_code=500, detail=f"Recovery failed: {str(e)}")
+
+
 
 
 @app.post("/perform-recovery")
 async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
     """Perform the complete school recovery process"""
     client_ip = request.client.host
-    logger.info(f"🔍 /perform-recovery called for email: {req.email} from IP: {client_ip}")
+    logger.info(f"🔍 ===== PERFORM RECOVERY STARTED =====")
+    logger.info(f"🔍 Request: email={req.email}, school_name={req.school_name}, contact={req.contact}, confirm_deactivation={req.confirm_deactivation}")
+    logger.info(f"🔍 Client IP: {client_ip}")
     
     try:
         # Input validation
+        logger.info(f"🔍 Step 1: Validating input...")
         if not req.confirm_deactivation:
+            logger.error(f"❌ Validation failed: confirm_deactivation is false")
             raise HTTPException(
                 status_code=400, 
                 detail="You must confirm device deactivation to proceed with recovery."
             )
+        logger.info(f"✅ Input validation passed")
         
-        if not cloud_client.check_connection():
+        # Check cloud connection
+        logger.info(f"🔍 Step 2: Checking cloud connection...")
+        cloud_connected = cloud_client.check_connection()
+        logger.info(f"🔍 Cloud connection result: {cloud_connected}")
+        
+        if not cloud_connected:
+            logger.error(f"❌ Cloud connection failed")
             raise HTTPException(status_code=503, detail="Cannot connect to cloud database")
+        logger.info(f"✅ Cloud connection successful")
         
         # Step 1: Verify school details
+        logger.info(f"🔍 Step 3: Verifying school details for {req.email}...")
         verify_result = await verify_school_recovery(req, request)
+        logger.info(f"🔍 Verify result: {verify_result}")
         
         if not verify_result.get("verified"):
+            logger.warning(f"⚠️ Verification failed: {verify_result.get('message')}")
             return {
                 "success": False,
                 "message": verify_result.get("message", "Verification failed")
             }
+        logger.info(f"✅ School verification successful")
         
         school_data = verify_result["data"]["school"]
         school_id = school_data.get("id")
+        logger.info(f"🔍 School data: ID={school_id}, Name={school_data.get('school_name')}, Email={school_data.get('school_email')}")
         
         if not school_id:
+            logger.error(f"❌ School ID not found in verification data")
             raise HTTPException(status_code=500, detail="School ID not found in verification data")
         
-        # Step 2: Get full admin data (including password hashes)
+        # Step 2: Get full admin data
+        logger.info(f"🔍 Step 4: Querying admin data for school_id={school_id}...")
         admin_query = """
             SELECT id, first_name, middle_name, last_name, 
                    contact, email, password_hash, created_at
@@ -2744,60 +3173,84 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
         """
         
         admin_result = execute_cloud_query(admin_query, (school_id,))
+        logger.info(f"🔍 Admin query result success: {admin_result.get('success')}")
+        logger.info(f"🔍 Admin rows count: {len(admin_result.get('rows', []))}")
         
         if not admin_result.get("success"):
+            logger.error(f"❌ Admin query failed: {admin_result.get('error', 'Unknown error')}")
             raise HTTPException(status_code=503, detail="Failed to query admin data")
         
         admins = admin_result.get("rows", [])
         
         if not admins:
+            logger.warning(f"⚠️ No admin accounts found for school_id={school_id}")
             raise HTTPException(status_code=404, detail="No admin accounts found for this school.")
         
-        logger.info(f"Found {len(admins)} admins to recover")
+        logger.info(f"✅ Found {len(admins)} admins to recover")
+        for i, admin in enumerate(admins):
+            logger.info(f"  Admin {i+1}: ID={admin.get('id')}, Email={admin.get('email')}, Contact={admin.get('contact')}")
         
-        # Step 3: Get full school data for blob creation
+        # Step 3: Get full school data
+        logger.info(f"🔍 Step 5: Getting full school data for school_id={school_id}...")
         full_school_query = """
             SELECT * FROM school_installations WHERE id = ?
         """
         full_school_result = execute_cloud_query(full_school_query, (school_id,))
+        logger.info(f"🔍 Full school query success: {full_school_result.get('success')}")
         
         if full_school_result.get("success") and full_school_result.get("rows"):
             full_school_data = full_school_result["rows"][0]
+            logger.info(f"✅ Retrieved full school data with {len(full_school_data)} fields")
+            logger.info(f"🔍 Full school data preview: {dict(list(full_school_data.items())[:5])}")  # First 5 fields
         else:
             full_school_data = school_data
+            logger.info(f"⚠️ Using basic school data as fallback")
         
         # Step 4: Create encrypted recovery blob
+        logger.info(f"🔍 Step 6: Creating encrypted recovery blob...")
+        encrypted_blob = None
         try:
             encrypted_blob = create_recovery_blob(full_school_data, admins)
             logger.info(f"✅ Created blob of length {len(encrypted_blob)}")
+            logger.info(f"✅ Blob preview: {encrypted_blob[:100]}...")
         except Exception as blob_error:
-            logger.error(f"Failed to create blob: {blob_error}")
-            encrypted_blob = None
+            logger.error(f"❌ Failed to create blob: {blob_error}")
+            import traceback
+            traceback.print_exc()
+            # Continue without blob - don't fail the whole recovery
         
-        # Step 5: Save to local database with SIMPLE approach
+        # Step 5: Save to local database
+        logger.info(f"🔍 Step 7: Saving to local database...")
         conn = None
+        saved_admin_ids = []
+        failed_admins = []
+        school_name = school_data.get("school_name", "").strip()
+        school_email = school_data.get("school_email", "").strip()
+        
         try:
+            logger.info(f"🔍 Connecting to local database at LOCAL_DB_PATH...")
             conn = get_local_db_connection()
             cursor = conn.cursor()
+            logger.info(f"✅ Connected to local database")
             
             # Start transaction
+            logger.info(f"🔍 Starting transaction...")
             cursor.execute("BEGIN TRANSACTION")
+            logger.info(f"✅ Transaction started")
             
-            # SIMPLE FIX: First, delete ONLY the conflicting records
+            # Delete existing records
+            logger.info(f"🔍 Clearing existing records...")
             admin_emails = []
             for admin in admins:
                 email = admin.get("email", "").strip()
                 if email:
                     admin_emails.append(email)
-                    # Delete any existing record with this email
                     cursor.execute("DELETE FROM recovered_users WHERE email = ?", (email,))
-                    logger.info(f"Deleted existing record for email: {email}")
+                    logger.info(f"  Deleted {cursor.rowcount} existing record(s) for email: {email}")
             
-            logger.info(f"Cleared {len(admin_emails)} potential conflicts")
+            logger.info(f"✅ Cleared {len(admin_emails)} potential conflicts")
             
-            # Save school info (use INSERT OR REPLACE)
-            school_name = school_data.get("school_name", "").strip()
-            school_email = school_data.get("school_email", "").strip()
+            # Prepare school data
             school_contact = school_data.get("school_contact", "").strip()
             
             # Prepare address
@@ -2810,7 +3263,10 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
             if not address or address == ", ":
                 address = city if city else "Unknown"
             
-            # Use INSERT OR REPLACE for school
+            logger.info(f"🔍 School data to save: name={school_name}, email={school_email}, contact={school_contact}, address={address}")
+            
+            # Save school info
+            logger.info(f"🔍 Saving school info...")
             cursor.execute("""
                 INSERT OR REPLACE INTO recovered_school_info 
                 (id, school_name, email, phone, address, city, state, country, 
@@ -2834,30 +3290,28 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
                 school_id,
                 json.dumps(full_school_data if isinstance(full_school_data, dict) else {}, default=str)
             ))
+            logger.info(f"✅ Saved school info, rowid: {cursor.lastrowid}")
             
-            logger.info(f"Saved school info")
-            
-            # Save admins - NOW with clean slate
-            saved_admin_ids = []
-            failed_admins = []
-            
+            # Save admins
+            logger.info(f"🔍 Saving {len(admins)} admins...")
             for i, admin in enumerate(admins):
                 try:
                     unique_id = str(uuid.uuid4())
                     email = admin.get("email", "").strip()
                     contact = admin.get("contact", "").strip()
                     
-                    logger.info(f"Processing admin {i+1}: email='{email}'")
+                    logger.info(f"  Processing admin {i+1}/{len(admins)}: ID={admin.get('id')}, email='{email}', contact='{contact}'")
                     
                     password_hash = admin.get("password_hash")
                     if not password_hash:
+                        logger.warning(f"  ⚠️ Admin {i+1} has no password hash, using temporary")
                         password_hash = hash_password("temporary_password")
                     
-                    # Prepare original data
+                    # Prepare original data (without password hash)
                     original_data = {k: v for k, v in admin.items() if k != 'password_hash'}
                     
                     if email:
-                        # Simple insert - we already deleted conflicts
+                        # Admin with email
                         cursor.execute("""
                             INSERT INTO recovered_users 
                             (unique_id, username, email, password_hash, role, status, 
@@ -2875,9 +3329,11 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
                             admin.get("id"),
                             json.dumps(original_data, default=str)
                         ))
+                        logger.info(f"  ✅ Admin {i+1} saved with email as username")
                     else:
                         # Admin without email
                         username = f"admin_{contact}_{unique_id[:8]}" if contact else f"admin_{unique_id[:8]}"
+                        logger.info(f"  🔍 Admin {i+1} has no email, using generated username: {username}")
                         cursor.execute("""
                             INSERT INTO recovered_users 
                             (unique_id, username, email, password_hash, role, status, 
@@ -2895,12 +3351,14 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
                             admin.get("id"),
                             json.dumps(original_data, default=str)
                         ))
+                        logger.info(f"  ✅ Admin {i+1} saved with generated username")
                     
                     saved_admin_ids.append(cursor.lastrowid)
-                    logger.info(f"✅ Admin {i+1} saved successfully")
                     
                 except Exception as admin_error:
-                    logger.error(f"❌ Error for admin {i+1}: {admin_error}")
+                    logger.error(f"  ❌ Error for admin {i+1}: {admin_error}")
+                    import traceback
+                    traceback.print_exc()
                     failed_admins.append({
                         "admin": {
                             "id": admin.get("id"),
@@ -2910,7 +3368,10 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
                         "error": str(admin_error)
                     })
             
+            logger.info(f"✅ Successfully saved {len(saved_admin_ids)} admins, Failed: {len(failed_admins)}")
+            
             # Update activation state
+            logger.info(f"🔍 Updating activation state...")
             cursor.execute("""
                 INSERT OR REPLACE INTO recovery_activation_state 
                 (id, activated, school_name, updated_at, recovered_at)
@@ -2920,19 +3381,26 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
                 datetime.now().isoformat(),
                 datetime.now().isoformat()
             ))
+            logger.info(f"✅ Activation state updated")
             
             # Commit transaction
+            logger.info(f"🔍 Committing transaction...")
             conn.commit()
-            logger.info(f"✅ Transaction committed. Saved {len(saved_admin_ids)} admins, Failed: {len(failed_admins)}")
+            logger.info(f"✅ Transaction committed successfully")
             
         except Exception as db_error:
             if conn:
+                logger.error(f"❌ Database error, rolling back: {db_error}")
                 conn.rollback()
-                logger.error(f"Database error, rolled back: {db_error}")
+                logger.info(f"✅ Transaction rolled back")
+            logger.error(f"❌ Database error details: {db_error}")
+            import traceback
+            traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"Database error during recovery: {str(db_error)}")
         finally:
             if conn:
                 conn.close()
+                logger.info(f"✅ Database connection closed")
         
         # Log success/failure
         log_recovery_attempt(
@@ -2943,6 +3411,7 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
         )
         
         # Prepare response
+        logger.info(f"🔍 Step 8: Preparing response...")
         response_data = {
             "success": True if saved_admin_ids else False,
             "message": f"Recovery completed. Recovered {len(saved_admin_ids)} out of {len(admins)} admins.",
@@ -2959,19 +3428,28 @@ async def perform_school_recovery(req: SchoolRecoveryRequest, request: Request):
         
         if failed_admins:
             response_data["warning"] = f"Failed to recover {len(failed_admins)} admin(s)."
+            logger.info(f"⚠️ Warning: {len(failed_admins)} admins failed")
         
         if encrypted_blob:
             response_data["encrypted_blob"] = encrypted_blob
+            logger.info(f"✅ Including encrypted blob in response (length: {len(encrypted_blob)})")
+        else:
+            logger.info(f"⚠️ No encrypted blob available to include in response")
         
+        logger.info(f"✅ Response prepared: success={response_data['success']}, message={response_data['message']}")
+        logger.info(f"✅ ===== PERFORM RECOVERY COMPLETED SUCCESSFULLY ===== for {school_name}")
         return response_data
                 
-    except HTTPException:
+    except HTTPException as he:
+        logger.error(f"❌ HTTPException: {he.detail}")
+        log_recovery_attempt(req.email, "perform_recovery", "error", f"HTTP: {he.detail}", client_ip)
         raise
     except Exception as e:
-        logger.error(f"Unhandled exception: {e}")
+        logger.error(f"❌ Unhandled exception: {e}")
+        import traceback
+        traceback.print_exc()
         log_recovery_attempt(req.email, "perform_recovery", "error", str(e), client_ip)
         raise HTTPException(status_code=500, detail=f"Recovery failed: {str(e)}")
-
 
 
 @app.post("/recovery/auto-import/{school_email}")
@@ -3066,6 +3544,7 @@ async def auto_import_recovery(school_email: str, request: Request):
     except Exception as e:
         log_recovery_attempt(school_email, "auto_import", "error", str(e), client_ip)
         raise HTTPException(status_code=500, detail=f"Auto-import failed: {str(e)}")
+
 
 @app.get("/recovery-status")
 async def get_recovery_status():
