@@ -1,3 +1,4 @@
+# app/scripts/start_server.py
 #!/usr/bin/env python3
 """
 Production start script for School Recovery Server

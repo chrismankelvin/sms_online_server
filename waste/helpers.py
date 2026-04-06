@@ -1,3 +1,4 @@
+# app/utils/helpers.py
 import sqlite3
 import hashlib
 import uuid
